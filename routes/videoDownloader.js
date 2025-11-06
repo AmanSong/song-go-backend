@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import https from "https";
 import http from "http";
+import fs from "fs"
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get("/stream/:videoId", async (req, res) => {
     const videoId = req.params.videoId;
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    const scriptPath = path.resolve('python/stream.py');
+    const scriptPath = path.resolve("python/getURL.py");
     const py = spawn(pythonPath, [scriptPath]);
 
     let output = '';
@@ -57,6 +58,56 @@ router.get("/stream/:videoId", async (req, res) => {
         }
     });
 
+    py.stdin.write(JSON.stringify({ url: videoUrl }));
+    py.stdin.end();
+});
+
+
+//Endpoint to download and return a MP3 file
+router.get("/download/:videoId", async (req, res) => {
+    const videoId = req.params.videoId;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    const scriptPath = path.resolve("python/download.py");
+    const py = spawn(pythonPath, [scriptPath]);
+
+    let output = "";
+    let errorOutput = "";
+
+    py.stdout.on("data", (chunk) => (output += chunk));
+    py.stderr.on("data", (chunk) => (errorOutput += chunk));
+
+    py.on("close", () => {
+        try {
+            const { file_path, error } = JSON.parse(output);
+
+            if (error) {
+                console.error("Python error:", error);
+                return res.status(500).json({ error });
+            }
+
+            if (!fs.existsSync(file_path)) {
+                return res.status(500).send("MP3 file not found");
+            }
+
+            // Stream the MP3 file to client
+            res.setHeader("Content-Type", "audio/mpeg");
+            const fileStream = fs.createReadStream(file_path);
+            fileStream.pipe(res);
+
+            // Optional: delete temp file after streaming
+            fileStream.on("close", () => {
+                fs.unlink(file_path, (err) => {
+                    if (err) console.error("Failed to delete temp file:", err);
+                });
+            });
+        } catch (err) {
+            console.error("Failed to parse Python output:", err);
+            res.status(500).send("Server error");
+        }
+    });
+
+    // Send the video URL to Python script
     py.stdin.write(JSON.stringify({ url: videoUrl }));
     py.stdin.end();
 });
