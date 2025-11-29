@@ -13,7 +13,7 @@ app.use(express.json());
 
 app.use("/api/youtube", youtubeRoutes);
 app.use("/api/video", videoDownloader);
-app.use("/api/user", (await import("../routes/userLogin.js")).default);
+app.use("/api/user", (await import("../routes/auth.js")).default);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
