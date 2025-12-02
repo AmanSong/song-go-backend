@@ -1,12 +1,9 @@
 import express from "express";
-import { createClient } from '@supabase/supabase-js'
 import 'dotenv/config'
 import jwt from 'jsonwebtoken'
+import SUPABASE from "../routes/clients/supabaseClient.js";
 
 const router = express.Router();
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY;
-const SUPABASE = createClient(SUPABASE_URL, SUPABASE_API_KEY);
 
 // Endpoint for user login
 router.post("/login", async (req, res) => {
@@ -35,7 +32,7 @@ router.post("/login", async (req, res) => {
         );
 
         return res.status(200).json({
-            token,    
+            token,
             user: {
                 id: user.id,
                 email: user.email,
@@ -65,6 +62,20 @@ router.post("/signup", async (req, res) => {
         if (error) {
             console.error("Error signing up: ", error.message);
             return res.status(400).json({ error: error.message });
+        }
+
+        const { error: userError } = await SUPABASE
+            .from('users')
+            .insert({
+                auth_id: data.user.id,
+                name: name,
+                email: email,
+                created_at: new Date().toISOString()
+            });
+
+        if (userError) {
+            console.error("Error creating profile: ", userError.message);
+            return res.status(400).json({ error: "Profile creation failed" });
         }
 
         // Success response
