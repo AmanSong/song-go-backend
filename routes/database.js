@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import SUPABASE from "./clients/supabaseClient.js";
 import 'dotenv/config'
+import crypto from 'crypto'
 
 const router = express.Router();
 
@@ -25,6 +26,11 @@ function sanitizeFileName(name) {
     return safeBase + safeExt;
 }
 
+// Generate file hash
+function generateFileHash(buffer) {
+    return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 router.post("/backup", upload.array("files"), async (req, res) => {
     try {
         const { userId } = req.body;
@@ -38,9 +44,33 @@ router.post("/backup", upload.array("files"), async (req, res) => {
             return res.status(400).json({ error: "No files uploaded" });
         }
 
-        // store music in supabase storage
         const uploadedFiles = [];
+        const skippedFiles = [];
+
         for (const file of files) {
+            // Generate unique hash for this file
+            const fileHash = generateFileHash(file.buffer);
+
+            // Check if file already exists for this user
+            const { data: existingFiles } = await SUPABASE
+                .from("music_backup")
+                .select("storage_path, file_name")
+                .eq("auth_id", userId)
+                .eq("file_hash", fileHash)
+                .limit(1);
+
+            if (existingFiles && existingFiles.length > 0) {
+                // File already backed up - skip upload
+                skippedFiles.push({
+                    fileName: file.originalname,
+                    supabasePath: existingFiles[0].storage_path,
+                    existingName: existingFiles[0].file_name,
+                    message: "Already backed up"
+                });
+                continue;
+            }
+
+            // File is new - upload with timestamp
             const supabasePath = `${userId}/${Date.now()}_${sanitizeFileName(file.originalname)}`;
 
             const { error: uploadError } = await SUPABASE.storage
@@ -57,26 +87,36 @@ router.post("/backup", upload.array("files"), async (req, res) => {
             uploadedFiles.push({
                 fileName: file.originalname,
                 supabasePath,
+                fileHash,
             });
         }
 
-        // Save metadata to database
-        const { error: dbError } = await SUPABASE
-            .from("music_backup")
-            .insert(
-                uploadedFiles.map((f) => ({
-                    auth_id: userId,
-                    file_name: f.fileName,
-                    storage_path: f.supabasePath,
-                }))
-            );
+        // Save metadata to database (only for new files)
+        if (uploadedFiles.length > 0) {
+            const { error: dbError } = await SUPABASE
+                .from("music_backup")
+                .insert(
+                    uploadedFiles.map((f) => ({
+                        auth_id: userId,
+                        file_name: f.fileName,
+                        storage_path: f.supabasePath,
+                        file_hash: f.fileHash,
+                    }))
+                );
 
-        if (dbError) {
-            console.error(dbError);
-            return res.status(500).json({ error: "Database insert failed" });
+            if (dbError) {
+                console.error(dbError);
+                return res.status(500).json({ error: "Database insert failed" });
+            }
         }
 
-        res.json({ success: true, uploadedFiles });
+        res.json({
+            success: true,
+            uploaded: uploadedFiles.length,
+            skipped: skippedFiles.length,
+            uploadedFiles,
+            skippedFiles
+        });
 
     } catch (error) {
         console.error('Backup error:', error);
@@ -85,62 +125,42 @@ router.post("/backup", upload.array("files"), async (req, res) => {
 });
 
 
-// AI template code (need to look at it again)
+router.get("/retrieve", async (req, res) => {
+    try {
+        const { userId } = req.query;
 
-// /**
-//  * GET /restore/list?userId=...
-//  * Returns the saved metadata for the user.
-//  */
-// router.get("/list", async (req, res) => {
-//     try {
-//         const { userId } = req.query;
-//         if (!userId) return res.status(400).json({ error: "userId required" });
+        // get paths from database
+        const { data: userFiles, error: dbError } = await SUPABASE
+            .from("music_backup")
+            .select("id, file_name, storage_path")
+            .eq("auth_id", userId)
 
-//         const { data, error } = await supabase
-//             .from("music_backup")
-//             .select("id, user_id, file_name, storage_path, created_at")
-//             .eq("user_id", userId)
-//             .order("created_at", { ascending: false });
+        if (dbError) throw dbError;
 
-//         if (error) {
-//             console.error("DB read error:", error);
-//             return res.status(500).json({ error: "Database read error" });
-//         }
+        // get signed urls from storage
+        const filesWithUrls = await Promise.all(
+            userFiles.map(async (file) => {
+                const { data: signedUrl } = await SUPABASE.storage
+                    .from("music_storage")
+                    .createSignedUrl(file.storage_path, 3600);
 
-//         res.json({ files: data });
-//     } catch (err) {
-//         console.error(err);
-//         res.status(500).json({ error: "Internal server error" });
-//     }
-// });
+                return {
+                    ...file,
+                    downloadUrl: signedUrl?.signedUrl,
+                    // Optional: Public URL if bucket is public
+                    publicUrl: SUPABASE.storage
+                        .from("music_storage")
+                        .getPublicUrl(file.storage_path).data.publicUrl
+                };
+            })
+        );
 
-// /**
-//  * POST /restore/url
-//  * Body: { storagePath: string, expiresInSeconds?: number }
-//  * Returns a signed URL for direct download from Supabase Storage.
-//  */
-// router.post("/url", async (req, res) => {
-//     try {
-//         const { storagePath, expiresInSeconds } = req.body;
-//         if (!storagePath) return res.status(400).json({ error: "storagePath required" });
+        res.json({ success: true, files: filesWithUrls });
 
-//         // default expiry e.g. 1 hour
-//         const expires = typeof expiresInSeconds === "number" ? expiresInSeconds : 60 * 60;
-
-//         const { data, error } = await supabase.storage
-//             .from(BUCKET)
-//             .createSignedUrl(storagePath, expires);
-
-//         if (error) {
-//             console.error("createSignedUrl error:", error);
-//             return res.status(500).json({ error: "Failed to create signed URL" });
-//         }
-
-//         res.json({ signedUrl: data.signedUrl, expiresAt: data.signedUrlExpiration });
-//     } catch (err) {
-//         console.error(err);
-//         res.status(500).json({ error: "Internal server error" });
-//     }
-// });
+    } catch (error) {
+        console.error('Retrieve error:', error);
+        res.status(500).json({ error: 'Failed to retrieve files' });
+    }
+});
 
 export default router;
