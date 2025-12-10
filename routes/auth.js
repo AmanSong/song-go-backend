@@ -51,6 +51,12 @@ router.post("/signup", async (req, res) => {
     const { name, email, password } = req.body;
 
     try {
+        if (password.length < 8) {
+            return res.status(400).json({
+                error: 'Password must be at least 8 characters'
+            });
+        }
+
         const { data, error } = await SUPABASE.auth.signUp({
             email,
             password,
