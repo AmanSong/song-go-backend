@@ -1,44 +1,35 @@
-import sys, json, tempfile, os
+import sys, json
 from yt_dlp import YoutubeDL
 
-class MyLogger:
-    def debug(self, msg):
-        # Send debug messages to stderr, not stdout
-        print(msg, file=sys.stderr, flush=True)
-
-    def warning(self, msg):
-        print(msg, file=sys.stderr, flush=True)
-
-    def error(self, msg):
-        print(msg, file=sys.stderr, flush=True)
+# We don't need a custom logger class if we just force everything to stderr
+# yt-dlp sends binary data to stdout when outtmpl is set to '-'
 
 def main():
     try:
-        data = json.loads(sys.stdin.read())
+        # Read input from stdin
+        input_data = sys.stdin.read()
+        if not input_data:
+            return # End silently if no input
+            
+        data = json.loads(input_data)
         url = data.get("url")
-        if not url:
-            print(json.dumps({"error": "No URL provided"}), flush=True)
-            return
-
-        tmp_dir = tempfile.gettempdir()
-        tmp_file = os.path.join(tmp_dir, "audio.mp3")
 
         ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": tmp_file,
-            "quiet": True,               # suppress default messages
-            "no_warnings": True,
-            "logger": MyLogger(),        # redirect all yt-dlp logs to stderr
+            'format': 'bestaudio/best',
+            # '-' directs the binary audio data to standard out (stdout)
+            'outtmpl': '-', 
+            'quiet': True,
+            'no_warnings': True,
+            'logtostderr': True, # CRITICAL: Ensure logs go to stderr so they don't corrupt the audio binary
         }
 
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        # Only output JSON to stdout
-        print(json.dumps({"file_path": tmp_file}), flush=True)
-
     except Exception as e:
-        print(json.dumps({"error": str(e)}), flush=True)
+        # Write errors to stderr so Node can read them separately
+        sys.stderr.write(str(e))
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

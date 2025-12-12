@@ -71,43 +71,28 @@ router.get("/download/:videoId", async (req, res) => {
     const videoId = req.params.videoId;
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
+    // Set headers immediately to keep connection alive and trigger download
+    res.setHeader("Content-Disposition", `attachment; filename="${videoId}.mp3"`);
+    res.setHeader("Content-Type", "audio/mpeg");
+
     const scriptPath = path.resolve("python/download.py");
     const py = spawn(pythonPath, [scriptPath]);
 
-    let output = "";
-    let errorOutput = "";
+    // pipe python stdout (binary audio) directly to express response
+    py.stdout.pipe(res);
 
-    py.stdout.on("data", (chunk) => (output += chunk));
-    py.stderr.on("data", (chunk) => (errorOutput += chunk));
+    // Handle errors
+    py.stderr.on("data", (data) => {
+        console.error(`Python Error: ${data.toString()}`);
+        // Note: If headers are already sent, we can't send a 500 JSON response here.
+        // The download will simply fail network-side for the user.
+    });
 
-    py.on("close", () => {
-        try {
-            const { file_path, error } = JSON.parse(output);
-
-            if (error) {
-                console.error("Python error:", error);
-                return res.status(500).json({ error });
-            }
-
-            if (!fs.existsSync(file_path)) {
-                return res.status(500).send("MP3 file not found");
-            }
-
-            // Stream the MP3 file to client
-            res.setHeader("Content-Type", "audio/mpeg");
-            const fileStream = fs.createReadStream(file_path);
-            fileStream.pipe(res);
-
-            // Optional: delete temp file after streaming
-            fileStream.on("close", () => {
-                fs.unlink(file_path, (err) => {
-                    if (err) console.error("Failed to delete temp file:", err);
-                });
-            });
-        } catch (err) {
-            console.error("Failed to parse Python output:", err);
-            res.status(500).send("Server error");
+    py.on("close", (code) => {
+        if (code !== 0) {
+            console.log(`Process ended with code ${code}`);
         }
+        res.end();
     });
 
     // Send the video URL to Python script
