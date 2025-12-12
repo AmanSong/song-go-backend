@@ -9,10 +9,13 @@ import fs from "fs"
 const router = express.Router();
 
 // Determine the correct Python executable path based on OS
-const pythonPath =
-    os.platform() === 'win32'
-        ? path.join('venv', 'Scripts', 'python.exe')
-        : path.join('venv', 'bin', 'python');
+const isRender = process.env.RENDER === 'true';
+
+const pythonPath = isRender
+    ? 'python3' // on Render (no venv)
+    : os.platform() === 'win32'
+        ? 'venv\\Scripts\\python.exe'
+        : './venv/bin/python';
 
 
 // Endpoint to stream audio of a YouTube video by its ID
