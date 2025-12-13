@@ -1,22 +1,12 @@
 import express from "express";
 import { spawn } from "child_process";
 import path from "path";
-import os from "os";
 import https from "https";
 import http from "http";
-import fs from "fs"
 
 const router = express.Router();
 
-// Determine the correct Python executable path based on OS
-const isRender = process.env.RENDER === 'true';
-
-const pythonPath = isRender
-    ? 'python3' // on Render (no venv)
-    : os.platform() === 'win32'
-        ? 'venv\\Scripts\\python.exe'
-        : './venv/bin/python';
-
+const pythonPath = "python3"
 
 // Endpoint to stream audio of a YouTube video by its ID
 router.get("/stream/:videoId", async (req, res) => {
