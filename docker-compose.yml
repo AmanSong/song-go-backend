@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   backend:
-    build: .
+    image: amansong/song_go:v1
     container_name: song-go
     ports:
       - "3000:3000"
@@ -13,7 +13,7 @@ services:
       - app-network
 
   tunnel:
-    image: cloudflare/cloudflared:latest
+    image: amansong/cloudflare:v1
     container_name: cloudflared-tunnel
     restart: always
     command: tunnel --no-autoupdate --url http://backend:3000
