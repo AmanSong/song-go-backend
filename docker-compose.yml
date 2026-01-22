@@ -16,8 +16,8 @@ services:
     image: amansong/cloudflare:v1
     container_name: cloudflared-tunnel
     restart: always
-    command: tunnel --no-autoupdate --url http://backend:3000
-    #command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    #command: tunnel --no-autoupdate --url http://backend:3000
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     depends_on:
       - backend
     networks:
