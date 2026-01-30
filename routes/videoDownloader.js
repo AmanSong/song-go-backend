@@ -6,7 +6,7 @@ import http from "http";
 
 const router = express.Router();
 
-const pythonPath = "python3"
+const pythonPath = "python"
 
 // Endpoint to stream audio of a YouTube video by its ID
 router.get("/stream/:videoId", async (req, res) => {
@@ -74,8 +74,6 @@ router.get("/download/:videoId", async (req, res) => {
     // Handle errors
     py.stderr.on("data", (data) => {
         console.error(`Python Error: ${data.toString()}`);
-        // Note: If headers are already sent, we can't send a 500 JSON response here.
-        // The download will simply fail network-side for the user.
     });
 
     py.on("close", (code) => {
